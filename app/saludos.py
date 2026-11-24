@@ -5,6 +5,7 @@ SALUDOS = {
     "en": "Hello",
     "pt": "Olá",
     "fr": "Bonjour",
+    "it": "Ciao",
 }
 
 
