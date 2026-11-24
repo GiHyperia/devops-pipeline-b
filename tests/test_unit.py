@@ -16,6 +16,7 @@ def test_saludo_por_defecto():
         ("en", "Hello, Ana!"),
         ("pt", "Olá, Ana!"),
         ("fr", "Bonjour, Ana!"),
+        ("it", "Ciao, Ana!"),
     ],
 )
 def test_saludo_en_cada_idioma(idioma, esperado):
@@ -32,4 +33,4 @@ def test_idioma_no_soportado_lanza_error():
 
 
 def test_idiomas_disponibles():
-    assert idiomas_disponibles() == ["en", "es", "fr", "pt"]
+    assert idiomas_disponibles() == ["en", "es", "fr", "it", "pt"]
