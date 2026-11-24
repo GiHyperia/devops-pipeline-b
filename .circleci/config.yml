@@ -1,0 +1,75 @@
+# Pipeline CircleCI 2.1 (modificado respecto a la Parte A)
+# Mejoras: varios jobs, caché de dependencias, cobertura mínima,
+# análisis de seguridad e informes de tests en la interfaz de CircleCI.
+version: 2.1
+
+executors:
+  python:
+    docker:
+      - image: cimg/python:3.12
+    working_directory: ~/repo
+
+commands:
+  install:
+    description: Instalar dependencias usando caché
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - deps-v1-{{ checksum "requirements-dev.txt" }}-{{ checksum "requirements.txt" }}
+      - run:
+          name: Instalar dependencias
+          command: |
+            python -m venv venv
+            . venv/bin/activate
+            pip install -r requirements-dev.txt
+      - save_cache:
+          key: deps-v1-{{ checksum "requirements-dev.txt" }}-{{ checksum "requirements.txt" }}
+          paths:
+            - venv
+
+jobs:
+  lint:
+    executor: python
+    steps:
+      - install
+      - run:
+          name: Análisis estático (flake8)
+          command: . venv/bin/activate && flake8 --statistics
+
+  security:
+    executor: python
+    steps:
+      - install
+      - run:
+          name: Análisis de seguridad del código (bandit)
+          command: . venv/bin/activate && bandit -r app
+      - run:
+          name: Vulnerabilidades en dependencias (pip-audit)
+          command: . venv/bin/activate && pip-audit -r requirements.txt
+
+  test:
+    executor: python
+    steps:
+      - install
+      - run:
+          name: Tests unitarios y de integración con cobertura
+          command: |
+            . venv/bin/activate
+            mkdir -p test-results
+            pytest -v --junitxml=test-results/junit.xml \
+              --cov=app --cov-report=term --cov-report=html --cov-fail-under=80
+      - store_test_results:
+          path: test-results
+      - store_artifacts:
+          path: htmlcov
+          destination: coverage
+
+workflows:
+  ci:
+    jobs:
+      - lint
+      - security
+      - test:
+          requires:
+            - lint

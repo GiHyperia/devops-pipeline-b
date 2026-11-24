@@ -1,0 +1,10 @@
+venv/
+.venv/
+.git/
+.github/
+.circleci/
+tests/
+__pycache__/
+.pytest_cache/
+.coverage
+*.md

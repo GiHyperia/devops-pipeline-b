@@ -1,0 +1,106 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:   # permite lanzarlo a mano desde la pestaña Actions
+
+jobs:
+  # ------------------------------------------------------------------
+  # CI: calidad, seguridad y tests en varias versiones de Python
+  # ------------------------------------------------------------------
+  ci:
+    name: CI (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v5
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+
+      - name: Análisis estático (flake8)
+        run: flake8 --statistics
+
+      - name: Seguridad del código (bandit)
+        run: bandit -r app
+
+      - name: Vulnerabilidades en dependencias (pip-audit)
+        run: pip-audit -r requirements.txt
+
+      - name: Tests unitarios e integración + cobertura
+        run: pytest -v --cov=app --cov-report=term --cov-fail-under=80
+
+  # ------------------------------------------------------------------
+  # CD: imagen Docker -> smoke test -> publicación en GitHub Packages
+  # Solo se ejecuta si el CI ha pasado y el cambio está en main
+  # ------------------------------------------------------------------
+  cd-docker:
+    name: CD (Docker)
+    needs: ci
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v5
+
+      - name: Preparar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generar nombre y etiquetas de la imagen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - name: Construir imagen para pruebas
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: app:test
+
+      - name: Smoke test del contenedor
+        run: |
+          docker run -d --name app -p 5000:5000 app:test
+          for i in $(seq 1 10); do
+            if curl -fs http://localhost:5000/health; then
+              echo " -> contenedor OK"; exit 0
+            fi
+            sleep 2
+          done
+          echo "El contenedor no responde"; docker logs app; exit 1
+
+      - name: Login en GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
